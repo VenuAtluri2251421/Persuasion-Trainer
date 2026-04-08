@@ -34,8 +34,13 @@ MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN     = os.getenv("HF_TOKEN")          # No default — must be set by caller
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")  # Optional — used with from_docker_image()
 
-# ── Optional: skip Docker and connect to a running server ─────────────────────
-ENV_BASE_URL: Optional[str] = os.getenv("ENV_BASE_URL")  # e.g. http://localhost:8000
+# ── Environment server connection ───────────────────────────────────────────
+# Defaults to the live HF Space so the validator can connect without Docker.
+# Override with LOCAL_IMAGE_NAME to use a local Docker container instead.
+ENV_BASE_URL: Optional[str] = os.getenv(
+    "ENV_BASE_URL",
+    "https://venuatluri936-persuasion-trainer.hf.space",
+)
 
 # ── Episode config ────────────────────────────────────────────────────────────
 BENCHMARK = "persuasion_trainer"

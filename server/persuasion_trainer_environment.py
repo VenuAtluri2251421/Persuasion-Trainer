@@ -30,13 +30,22 @@ except ImportError:
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-if not GROQ_API_KEY:
-    raise EnvironmentError(
-        "GROQ_API_KEY environment variable is not set. "
-        "Export it before running: export GROQ_API_KEY=your_key_here"
-    )
-client = Groq(api_key=GROQ_API_KEY)
+_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+_client: Optional[Groq] = None
+
+
+def _get_client() -> Groq:
+    """Lazy Groq client — raises a clear error only when first LLM call is made."""
+    global _client
+    if _client is None:
+        key = os.environ.get("GROQ_API_KEY", "")
+        if not key:
+            raise EnvironmentError(
+                "GROQ_API_KEY environment variable is not set. "
+                "Set it before starting the server: export GROQ_API_KEY=your_key_here"
+            )
+        _client = Groq(api_key=key)
+    return _client
 
 STRATEGIES = ["logical", "emotional", "examples", "data", "pressure"]
 
@@ -57,6 +66,7 @@ class StrategyPolicy(nn.Module):
 
 def call_llama(prompt: str, system: str = "", json_mode: bool = False) -> str:
     """Invokes Llama-4-Scout via Groq."""
+    client = _get_client()
     system += " STRICT RULE: Keep all responses to 3 sentences max. Be punchy. Do not repeat the user's words back to them."
     response_format = {"type": "json_object"} if json_mode else {"type": "text"}
     completion = client.chat.completions.create(
@@ -75,6 +85,7 @@ def process_audio(audio_path: str) -> str:
     """Uses Groq Whisper to process voice inputs."""
     if not audio_path:
         return ""
+    client = _get_client()
     with open(audio_path, "rb") as file:
         transcription = client.audio.transcriptions.create(
             file=(audio_path, file.read()),
@@ -103,7 +114,7 @@ def analyze_image(image_path: str) -> dict:
         b64 = base64.b64encode(raw).decode("utf-8")
         data_url = f"data:{mime};base64,{b64}"
 
-        completion = client.chat.completions.create(
+        completion = _get_client().chat.completions.create(
             model="llama-4-scout",
             messages=[
                 {
