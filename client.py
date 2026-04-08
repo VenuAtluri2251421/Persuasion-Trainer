@@ -12,7 +12,11 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import PersuasionTrainerAction, PersuasionTrainerObservation
+try:
+    from .models import PersuasionTrainerAction, PersuasionTrainerObservation
+except ImportError:
+    from models import PersuasionTrainerAction, PersuasionTrainerObservation  # type: ignore[no-redef]
+
 
 
 class PersuasionTrainerEnv(

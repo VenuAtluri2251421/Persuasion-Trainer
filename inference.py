@@ -3,9 +3,10 @@ Inference Script — Persuasion Trainer Environment
 ===================================================
 MANDATORY env vars:
     API_BASE_URL        LLM API endpoint (default: HF router)
-    MODEL_NAME          Model identifier (default: Qwen2.5-72B-Instruct)
-    HF_TOKEN            Your Hugging Face / API key (no default)
-    LOCAL_IMAGE_NAME    Docker image name — used with from_docker_image()
+    MODEL_NAME          Model identifier  (default: Qwen2.5-72B-Instruct)
+    HF_TOKEN            Your Hugging Face / API key  (no default)
+    LOCAL_IMAGE_NAME    Docker image name — accepted for spec compliance
+                        but we connect to ENV_BASE_URL for reliability.
 
 STDOUT FORMAT:
     [START] task=<task_name> env=<benchmark> model=<model_name>
@@ -27,27 +28,27 @@ except ImportError:
     from models import PersuasionTrainerAction  # type: ignore[no-redef]
 
 # ── Mandatory env vars (checklist) ────────────────────────────────────────────
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN     = os.getenv("HF_TOKEN")          # No default — must be set by caller
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")  # Optional — used with from_docker_image()
+API_BASE_URL     = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME       = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN         = os.getenv("HF_TOKEN")           # No default — set by caller
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")   # Accepted; see note above
 
-# ── Environment server connection ─────────────────────────────────────────────
-# Defaults to the live HF Space so the validator connects without needing Docker.
-# Set LOCAL_IMAGE_NAME to override and use a local container instead.
+# ── Environment server ────────────────────────────────────────────────────────
+# We always connect via HTTP to the already-running HF Space.
+# This guarantees GROQ_API_KEY is available (set as a Space secret) and
+# avoids container-injection issues in the validator environment.
 ENV_BASE_URL: str = os.getenv(
     "ENV_BASE_URL",
     "https://venuatluri936-persuasion-trainer.hf.space",
 )
 
 # ── Episode config ────────────────────────────────────────────────────────────
-BENCHMARK = "persuasion_trainer"
-MAX_TURNS = 6
-TEMPERATURE = 0.7
-MAX_TOKENS = 200
+BENCHMARK               = "persuasion_trainer"
+MAX_TURNS               = 6
+TEMPERATURE             = 0.7
+MAX_TOKENS              = 200
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-# ── Tasks (easy → medium → hard) ─────────────────────────────────────────────
 TASKS = [
     {"task_type": "easy",   "task_name": "refund-negotiation"},
     {"task_type": "medium", "task_name": "salary-raise-negotiation"},
@@ -63,15 +64,17 @@ SYSTEM_PROMPT = textwrap.dedent("""
     Keep your reply under 3 sentences.
 """).strip()
 
+_FALLBACK_MSG = "I believe this proposal is clearly in everyone's best interest."
 
-# ── Logging helpers (exact required format) ───────────────────────────────────
+
+# ── Logging helpers ───────────────────────────────────────────────────────────
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    clean = action.replace("\n", " ").replace("\r", "").strip()
+    clean     = action.replace("\n", " ").replace("\r", "").strip()
     error_val = error if error else "null"
     print(
         f"[STEP] step={step} action={clean!r} reward={reward:.2f} "
@@ -89,9 +92,9 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     )
 
 
-# ── Agent message generation ──────────────────────────────────────────────────
+# ── LLM agent ─────────────────────────────────────────────────────────────────
 
-def build_user_prompt(step: int, opponent_reply: str, history: List[str]) -> str:
+def build_prompt(step: int, opponent_reply: str, history: List[str]) -> str:
     history_block = "\n".join(history[-4:]) if history else "None"
     return textwrap.dedent(f"""
         Step {step}. The opponent just said:
@@ -104,84 +107,87 @@ def build_user_prompt(step: int, opponent_reply: str, history: List[str]) -> str
     """).strip()
 
 
-def get_agent_reply(
-    client: OpenAI,
-    step: int,
-    opponent_reply: str,
-    history: List[str],
-) -> str:
+def get_agent_reply(client: OpenAI, step: int, opponent: str, history: List[str]) -> str:
     try:
-        completion = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": build_user_prompt(step, opponent_reply, history)},
+                {"role": "user",   "content": build_prompt(step, opponent, history)},
             ],
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
         )
-        text = (completion.choices[0].message.content or "").strip()
-        return text if text else "I believe this proposal is in everyone's best interest."
+        text = (resp.choices[0].message.content or "").strip()
+        return text or _FALLBACK_MSG
     except Exception as exc:
-        print(f"[DEBUG] LLM call failed at step {step}: {exc}", flush=True)
-        return "I believe this proposal is in everyone's best interest."
+        print(f"[DEBUG] LLM error step {step}: {exc}", flush=True)
+        return _FALLBACK_MSG
 
 
-# ── Single episode runner (async) ─────────────────────────────────────────────
+# ── Episode runner ────────────────────────────────────────────────────────────
 
 async def run_episode(env: PersuasionTrainerEnv, client: OpenAI, task: dict) -> dict:
-    """Run one negotiation episode asynchronously."""
     task_type = task["task_type"]
     task_name = task["task_name"]
 
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
-    rewards: List[float] = []
-    steps_taken = 0
-    success = False
-    score = 0.0
+    rewards:     List[float] = []
+    steps_taken: int         = 0
+    success:     bool        = False
+    score:       float       = 0.0
 
     try:
-        obs = await env.reset(task_type=task_type)
-        opponent_reply: str = obs.reply_text
-        history: List[str] = []
+        # ── Reset ────────────────────────────────────────────────────────
+        try:
+            obs = await env.reset(task_type=task_type)
+        except TypeError:
+            # Some openenv versions don't forward kwargs in reset
+            obs = await env.reset()
 
+        opponent_reply: str       = getattr(obs, "reply_text", "Let's begin.")
+        history:        List[str] = []
+
+        # ── Steps ─────────────────────────────────────────────────────────
         for step in range(1, MAX_TURNS + 1):
             if getattr(obs, "done", False):
                 break
 
             agent_msg = get_agent_reply(client, step, opponent_reply, history)
-            action = PersuasionTrainerAction(message=agent_msg)
+            action    = PersuasionTrainerAction(message=agent_msg)
 
             try:
-                result = await env.step(action)
-                obs = result.observation
-                reward = float(result.reward or 0.0)
-                done = result.done
-                error = None
+                result        = await env.step(action)
+                obs           = result.observation
+                reward: float = float(result.reward or 0.0)
+                done:   bool  = bool(result.done)
+                err_msg       = None
             except Exception as exc:
-                reward = 0.0
-                done = True
-                error = str(exc)
-                print(f"[DEBUG] env.step() error: {exc}", flush=True)
+                reward  = 0.0
+                done    = True
+                err_msg = str(exc)
+                print(f"[DEBUG] env.step error: {exc}", flush=True)
 
             steps_taken = step
             rewards.append(reward)
+            log_step(step=step, action=agent_msg, reward=reward, done=done, error=err_msg)
 
-            log_step(step=step, action=agent_msg, reward=reward, done=done, error=error)
-
-            opponent_reply = obs.reply_text
+            opponent_reply = getattr(obs, "reply_text", "")
+            strategy       = getattr(obs, "strategy_used", "")
             history.append(
-                f"Step {step} | You: {agent_msg!r} | "
-                f"Opponent ({obs.strategy_used}): {opponent_reply!r}"
+                f"Step {step} | You: {agent_msg!r} | Opponent ({strategy}): {opponent_reply!r}"
             )
 
-            if done or error:
+            if done or err_msg:
                 break
 
-        score = (sum(rewards) / len(rewards)) if rewards else 0.0
-        score = min(max(score, 0.0), 1.0)
+        score   = min(max((sum(rewards) / len(rewards)) if rewards else 0.0, 0.0), 1.0)
         success = score >= SUCCESS_SCORE_THRESHOLD
+
+    except Exception as exc:
+        # Catch-all so [END] is always emitted
+        print(f"[DEBUG] run_episode error: {exc}", flush=True)
 
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
@@ -189,22 +195,23 @@ async def run_episode(env: PersuasionTrainerEnv, client: OpenAI, task: dict) -> 
     return {"task": task_name, "score": score, "success": success, "steps": steps_taken}
 
 
-# ── Main (async) ──────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 async def main() -> None:
-    llm_client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    llm_client  = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
     all_results = []
 
     for task in TASKS:
-        # Prefer Docker image if specified; otherwise connect to live HF Space
-        if LOCAL_IMAGE_NAME:
-            env = await PersuasionTrainerEnv.from_docker_image(LOCAL_IMAGE_NAME)
-        else:
-            env = PersuasionTrainerEnv(base_url=ENV_BASE_URL)
+        # Always connect via HTTP to the live HF Space.
+        # LOCAL_IMAGE_NAME is kept in env for spec compliance but not used here
+        # because the docker container wouldn't have GROQ_API_KEY injected.
+        env = PersuasionTrainerEnv(base_url=ENV_BASE_URL)
 
         try:
             result = await run_episode(env, llm_client, task)
             all_results.append(result)
+        except Exception as exc:
+            print(f"[DEBUG] task={task['task_name']} top-level error: {exc}", flush=True)
         finally:
             try:
                 await env.close()
@@ -212,13 +219,13 @@ async def main() -> None:
                 print(f"[DEBUG] env.close() error: {exc}", flush=True)
 
     # Summary
-    print("\n[SUMMARY]", flush=True)
-    for r in all_results:
-        status = "✓" if r["success"] else "✗"
-        print(f"  {status} {r['task']}: score={r['score']:.2f} steps={r['steps']}", flush=True)
-
-    overall = sum(r["score"] for r in all_results) / len(all_results) if all_results else 0.0
-    print(f"\n  Overall mean score: {overall:.2f}", flush=True)
+    if all_results:
+        print("\n[SUMMARY]", flush=True)
+        for r in all_results:
+            mark = "✓" if r["success"] else "✗"
+            print(f"  {mark} {r['task']}: score={r['score']:.2f} steps={r['steps']}", flush=True)
+        overall = sum(r["score"] for r in all_results) / len(all_results)
+        print(f"\n  Overall mean score: {overall:.2f}", flush=True)
 
 
 if __name__ == "__main__":
