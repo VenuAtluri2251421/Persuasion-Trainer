@@ -1,282 +1,255 @@
 ---
-title: Persuasion Trainer Environment Server
-emoji: 🧠
-colorFrom: indigo
-colorTo: gray
+title: Multimodal Persuasion Trainer
+emoji: 🎯
+colorFrom: purple
+colorTo: indigo
 sdk: docker
-pinned: false
 app_port: 8000
-base_path: /web
 tags:
   - openenv
+  - negotiation
+  - multimodal
+  - reinforcement-learning
+  - llama-4
+  - pytorch
+pinned: true
 ---
 
-# 🧠 Persuasion Trainer Environment
+# 🎯 Multimodal Persuasion Trainer
 
-A high-fidelity, **multimodal, RL-powered negotiation training environment** built on [OpenEnv](https://github.com/meta-pytorch/OpenEnv). Train and evaluate persuasion skills against a dynamic AI opponent that adapts to your weaknesses in real time.
+> **An OpenEnv-compliant, multimodal negotiation training environment powered by Llama 4 Scout, Groq Whisper, Llama Vision, and PyTorch Online Policy Gradients.**
 
----
-
-## ✨ Features
-
-| Feature | Details |
-|---|---|
-| **Text** | GPT-graded negotiation responses via Llama 4 Scout |
-| **Voice** | Real-time STT transcription via Groq Whisper (`whisper-large-v3-turbo`) |
-| **Facial Expression** | Webcam frame analysis via Llama Vision (multimodal) |
-| **RL Policy** | Online PyTorch policy gradient that adapts opponent tactics mid-episode |
-| **Dynamic Personas** | Easy / Medium / Hard tasks + fully custom persona/objective injection |
-| **Hesitation Penalty** | Semantic filler-word detection (um, uh, like…) penalises persuasion score |
-| **OpenEnv Compliant** | Full HTTP + WebSocket API, Docker-ready, HuggingFace Spaces deployable |
+[![OpenEnv](https://img.shields.io/badge/OpenEnv-Compliant-brightgreen)](https://openenv.dev)
+[![Llama 4](https://img.shields.io/badge/Llama%204%20Scout-17B-blueviolet)](https://groq.com)
+[![PyTorch](https://img.shields.io/badge/PyTorch-RL-orange)](https://pytorch.org)
+[![HuggingFace](https://img.shields.io/badge/HuggingFace-Space-yellow)](https://huggingface.co/spaces/VenuAtluri936/Persuasion-Trainer)
 
 ---
 
-## 🚀 Quick Start
+## 🌟 What It Does
 
-```python
-from persuasion_trainer import PersuasionTrainerAction, PersuasionTrainerEnv
+The Persuasion Trainer puts an AI agent in high-stakes real-world negotiation scenarios. The environment:
 
-with PersuasionTrainerEnv(base_url="http://localhost:8000") as env:
-    # Start a hard-mode negotiation
-    obs = env.reset(task_type="hard")
-    print(f"[Opponent]: {obs.reply_text}")
-
-    for _ in range(6):
-        if obs.done:
-            break
-        action = PersuasionTrainerAction(
-            message="I understand your concerns. Here is the data that supports the pivot…",
-            audio_path="reply.wav",      # optional — Whisper STT
-            image_path="frame.jpg",      # optional — Llama Vision
-        )
-        obs = env.step(action)
-        print(f"[Opponent ({obs.strategy_used})]: {obs.reply_text}")
-        print(f"  Reward : {obs.reward:.2f}/1.0")
-        print(f"  Grades : {obs.grades}")
-        print(f"  Vision : {obs.metadata.get('vision', {})}")
-```
+1. **Listens to the agent** — text message, voice recording (Whisper STT), or webcam frame (Llama Vision)
+2. **Grades every turn** — clarity, logic, persuasion strength, confidence (0–10 each)
+3. **Penalises hesitation** — detects filler words (`um`, `uh`, `like`, `I guess`) semantically
+4. **Modulates scores via facial signals** — eye contact, nervousness, confidence from the webcam frame
+5. **Adapts the opponent** — a PyTorch policy gradient network picks the next opponent strategy based on the agent's cumulative weaknesses
+6. **Generates a counter-argument** — Llama 4 Scout plays a dynamic, realistic opponent
 
 ---
 
 ## 🏗️ Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Agent Turn (multimodal input)                 │
+│                                                                 │
+│   message (text) ──────────────────────────────────┐           │
+│   audio_path  ──→ [Groq Whisper STT] ──→ transcript │           │
+│   image_path  ──→ [Llama 4 Vision]  ──→ face signals│           │
+└───────────────────────────────────────────┬─────────┘           │
+                                            │ fused input
+                    ┌───────────────────────▼──────────────────┐
+                    │         Llama 4 Scout Grader              │
+                    │  clarity / logic / persuasion / confidence│
+                    │  + filler-word penalty (regex + semantic)  │
+                    │  + facial expression modulation            │
+                    └───────────────────┬──────────────────────┘
+                                        │ reward signal (0–1)
+                    ┌───────────────────▼──────────────────────┐
+                    │     PyTorch Policy Gradient (online RL)   │
+                    │  StrategyPolicy(4 → 16 → 5 → softmax)    │
+                    │  Learns agent weaknesses across turns      │
+                    │  Outputs next opponent strategy            │
+                    └───────────────────┬──────────────────────┘
+                                        │ strategy token
+                    ┌───────────────────▼──────────────────────┐
+                    │     Llama 4 Scout Opponent Generator       │
+                    │  Dynamic persona + selected strategy       │
+                    │  Generates realistic counter-argument      │
+                    └──────────────────────────────────────────┘
+```
+
+---
+
+## 📋 Tasks
+
+| Task | Difficulty | Scenario |
+|------|-----------|----------|
+| `refund-negotiation` | 🟢 Easy | Convince a Customer Support Agent to issue a full refund |
+| `job-offer-negotiation` | 🟢 Easy | Negotiate a better compensation package with a recruiter |
+| `salary-raise-negotiation` | 🟡 Medium | Negotiate a 15% raise with a budget-constrained HR Manager |
+| `landlord-rent-dispute` | 🟡 Medium | Persuade a landlord to reduce rent or cover repairs |
+| `board-pivot-negotiation` | 🔴 Hard | Convince a hostile Board Member to approve a company pivot |
+| `merger-acquisition-negotiation` | 🔴 Hard | Persuade a rival CEO to accept your M&A terms |
+
+---
+
+## 🧠 RL Policy
+
+The `StrategyPolicy` is a 3-layer PyTorch MLP:
+
+```python
+StrategyPolicy(
+  Linear(4, 16),   # input: [clarity, logic, persuasion, confidence]
+  ReLU(),
+  Linear(16, 5),   # output: [logical, emotional, examples, data, pressure]
+  Softmax(dim=-1)
+)
+```
+
+**Online REINFORCE** updates happen after every step using the normalised reward as the policy gradient signal. The opponent gets harder as the agent gets better — and exploits weaknesses when the agent underperforms.
+
+---
+
+## 📊 Reward Formula
+
+```
+base_score    = (clarity + logic + persuasion + confidence) / 40.0
+filler_penalty = count(filler_words) * 0.05
+vision_boost  = confidence_signal * 0.1 + eye_contact_signal * 0.05
+nervousness_penalty = nervousness_signal * 0.05
+
+reward = clip(base_score - filler_penalty + vision_boost - nervousness_penalty, 0, 1)
+```
+
+---
+
+## 🔌 API Reference
+
+### `POST /reset`
+Start a new negotiation episode.
+
+```json
+// Request
+{"task_type": "medium"}
+
+// Response
+{
+  "observation": {
+    "reply_text": "A 15% raise is not feasible at this time...",
+    "strategy_used": "opening",
+    "reward": 0.0,
+    "grades": {},
+    "done": false,
+    "metadata": {}
+  },
+  "reward": 0.0,
+  "done": false
+}
+```
+
+### `POST /step`
+Submit one turn of the negotiation.
+
+```json
+// Request
+{
+  "message": "My track record shows 40% revenue growth — I deserve this raise.",
+  "audio_path": "/tmp/voice.wav",   // optional
+  "image_path": "/tmp/webcam.jpg"   // optional
+}
+
+// Response
+{
+  "observation": {
+    "reply_text": "Impressive metrics, but budget allocation for Q2...",
+    "strategy_used": "data",
+    "reward": 0.72,
+    "grades": {"clarity": 8, "logic": 7, "persuasion": 8, "confidence": 7},
+    "done": false,
+    "metadata": {"turn": 2, "policy_loss": 0.031}
+  },
+  "reward": 0.72,
+  "done": false
+}
+```
+
+### `GET /health`
+Returns `{"status": "ok"}` when server is running.
+
+### `GET /docs`
+Full interactive Swagger UI.
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY` | ✅ Yes | Powers Llama 4 Scout (text + vision) and Groq Whisper |
+| `API_BASE_URL` | For inference | LLM endpoint for the agent (default: HF router) |
+| `MODEL_NAME` | For inference | Agent model ID (default: Qwen/Qwen2.5-72B-Instruct) |
+| `HF_TOKEN` | For inference | HuggingFace API token |
+| `LOCAL_IMAGE_NAME` | Optional | Docker image name if using `from_docker_image()` |
+
+---
+
+## 🚀 Quick Start
+
+### Run with Docker (local)
+
+```bash
+docker build -t persuasion-trainer . 
+GROQ_API_KEY=your_key docker run -p 8000:8000 -e GROQ_API_KEY persuasion-trainer
+```
+
+### Run inference script
+
+```bash
+pip install openenv-core openai
+export HF_TOKEN=your_hf_token
+# ENV_BASE_URL defaults to the live HF Space automatically
+python inference.py
+```
+
+### Expected stdout
+
+```
+[START] task=refund-negotiation env=persuasion_trainer model=Qwen/Qwen2.5-72B-Instruct
+[STEP] step=1 action='I purchased this item...' reward=0.62 done=false error=null
+[STEP] step=2 action='My consumer rights clearly state...' reward=0.74 done=false error=null
+...
+[END] success=true steps=4 score=0.71 rewards=0.62,0.74,0.75,0.73
+```
+
+---
+
+## 🏆 What Makes This Stand Out
+
+| Feature | Implementation |
+|---------|---------------|
+| **True Multimodal** | Text + audio (Whisper) + image (Llama Vision) — not just text |
+| **Online RL** | PyTorch policy gradient updates after every step, not pre-trained |
+| **Adaptive Difficulty** | RL policy exploits agent weaknesses dynamically |
+| **Llama 4 Scout** | Latest multimodal model for both grading and opponent generation |
+| **6 Task Scenarios** | Diverse real-world negotiation coverage across 2 difficulty tiers |
+| **Fully OpenEnv Spec** | 5/5 pre-submission checklist, correct stdout format |
+
+---
+
+## 📁 Project Structure
+
+```
 persuasion_trainer/
-├── __init__.py                        # Public API exports
-├── models.py                          # Action & Observation Pydantic models
-├── client.py                          # PersuasionTrainerEnv HTTP/WebSocket client
-├── baseline.py                        # OpenAI baseline inference script
-├── openenv.yaml                       # OpenEnv manifest
-├── pyproject.toml                     # Project metadata and dependencies
+├── inference.py                    # Mandatory hackathon inference script
+├── baseline.py                     # Baseline agent for quick testing
+├── client.py                       # OpenEnv HTTP client
+├── models.py                       # Pydantic action/observation models
+├── openenv.yaml                    # OpenEnv spec metadata
+├── Dockerfile                      # HuggingFace Space build
+├── pyproject.toml                  # Package config
 └── server/
-    ├── persuasion_trainer_environment.py  # Core environment logic (RL + Llama)
-    ├── app.py                         # FastAPI server (HTTP + WebSocket)
-    └── Dockerfile                     # Container image
-```
-
-### Data Flow (per step)
-
-```
-User Action
-  │── message (text)   ──► Llama 4 Scout grading
-  │── audio_path       ──► Groq Whisper STT ──► appended to message
-  └── image_path       ──► Llama Vision ──► facial expression signals
-                                                 │
-                                    ┌────────────▼────────────────┐
-                                    │  Grade fusion & hesitation  │
-                                    │  penalty calculation        │
-                                    └────────────┬────────────────┘
-                                                 │
-                                    ┌────────────▼────────────────┐
-                                    │  PyTorch RL Policy Update   │
-                                    │  (online policy gradient)   │
-                                    └────────────┬────────────────┘
-                                                 │
-                                    ┌────────────▼────────────────┐
-                                    │  Opponent counter-argument  │
-                                    │  generated by Llama 4 Scout │
-                                    └────────────┬────────────────┘
-                                                 │
-                                    PersuasionTrainerObservation
+    ├── app.py                      # FastAPI application
+    └── persuasion_trainer_environment.py  # Core RL environment
 ```
 
 ---
 
-## 📐 API Reference
+## 🤝 Hackathon Submission
 
-### Action — `PersuasionTrainerAction`
-
-| Field | Type | Description |
-|---|---|---|
-| `message` | `str \| None` | Text message to the opponent |
-| `audio_path` | `str \| None` | Path to voice recording (WAV/MP3) — transcribed via Groq Whisper |
-| `image_path` | `str \| None` | Path to webcam frame (JPEG/PNG/WebP) — analysed via Llama Vision |
-
-### Observation — `PersuasionTrainerObservation`
-
-| Field | Type | Description |
-|---|---|---|
-| `reply_text` | `str` | Opponent's response text |
-| `strategy_used` | `str` | RL-selected tactic: `logical`, `emotional`, `examples`, `data`, `pressure` |
-| `reward` | `float` | Normalised user score for the turn (0.0 – 1.0) |
-| `grades` | `dict` | `{clarity, logic, persuasion, confidence}` — scores 0–10 |
-| `done` | `bool` | `True` after 6 turns |
-| `metadata` | `dict` | `{turn, loss, hesitations_detected, vision: {emotion, eye_contact, nervousness, vision_notes}}` |
-
-### Grading & Reward
-
-```
-reward = (logic + persuasion) / 20.0
-
-Grade modifiers applied in order:
-  1. Llama 4 Scout text grading  → base scores (0–10 each dimension)
-  2. Hesitation penalty          → -0.5×N from persuasion
-  3. Vision modulation (if image provided):
-       confidence  += (face_confidence − 5) × 0.3 − nervousness × 0.1
-       persuasion  += (eye_contact − 5) × 0.2
-```
-
----
-
-## 🎭 Task Modes
-
-| Mode | Persona | Scenario |
-|---|---|---|
-| `easy` | Customer Support Agent | Full refund for a slightly delayed delivery |
-| `medium` | Strict HR Manager | 15% salary raise (budget-constrained) |
-| `hard` | Hostile Board Member | Full company pivot (opponent fights hard) |
-| `custom` | Your choice | Inject any `persona` and `objective` via `reset()` kwargs |
-
-```python
-# Custom persona injection
-obs = env.reset(
-    task_type="custom",
-    persona="Skeptical Coding Instructor",
-    objective="The user wants a 2-day extension on their final project.",
-)
-```
-
----
-
-## ⚙️ Setup
-
-### Prerequisites
-
-- Python ≥ 3.10
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- `GROQ_API_KEY` — get yours at [console.groq.com](https://console.groq.com)
-- `OPENAI_API_KEY` — only needed to run the baseline script
-
-```bash
-# Install dependencies
-uv sync
-
-# Set API keys
-export GROQ_API_KEY=your_groq_key_here
-export OPENAI_API_KEY=your_openai_key_here   # for baseline only
-```
-
-### Running Locally
-
-```bash
-# Start the server
-uvicorn server.app:app --reload
-
-# Or via the project entry point
-uv run server
-```
-
-### Running the Baseline
-
-```bash
-python baseline.py
-```
-
-The baseline runs an `OpenAI gpt-4o-mini` agent through all four task modes (easy → medium → hard → custom) and prints full grading breakdowns:
-
-```
-==========================================
-BASELINE RUN: EASY TASK
-==========================================
-[Opponent]: How can I help you today?
-[Agent]: I'd like a refund for my delayed order…
-[Opponent (emotional)]: I completely understand your frustration…
-…
-*** EPISODE FINISHED ***
-Final Internal Env Loss: 0.1823
-Hesitations detected: 0
-Final Overall Reward Score: 0.72/1.0
-Grading Breakdown: {'clarity': 8, 'logic': 7, 'persuasion': 7.4, 'confidence': 6.5}
-```
-
----
-
-## 🐳 Building the Docker Image
-
-```bash
-docker build -t persuasion_trainer-env:latest -f server/Dockerfile .
-```
-
-Then use `PersuasionTrainerEnv.from_docker_image()`:
-
-```python
-env = PersuasionTrainerEnv.from_docker_image("persuasion_trainer-env:latest")
-```
-
----
-
-## ☁️ Deploying to Hugging Face Spaces
-
-```bash
-# From the environment directory
-openenv push
-
-# Options
-openenv push --namespace my-org --private
-openenv push --repo-id my-org/persuasion-trainer --base-image custom-base:latest
-```
-
-The deployed Space includes:
-- **Web Interface** at `/web` — interactive UI for exploring the environment
-- **API Docs** at `/docs` — full OpenAPI/Swagger interface
-- **Health Check** at `/health` — container health monitoring
-- **WebSocket** at `/ws` — persistent low-latency session endpoint
-
----
-
-## 🔧 Advanced Usage
-
-### Concurrent Sessions
-
-```python
-# server/app.py — increase max_concurrent_envs for parallel sessions
-app = create_app(
-    PersuasionTrainerEnvironment,
-    PersuasionTrainerAction,
-    PersuasionTrainerObservation,
-    max_concurrent_envs=4,
-)
-```
-
-### Connecting to an Existing Server
-
-```python
-env = PersuasionTrainerEnv(base_url="http://your-server:8000")
-obs = env.reset()
-obs = env.step(PersuasionTrainerAction(message="Hello!"))
-# close() will NOT stop the external server
-env.close()
-```
-
----
-
-## 📦 Dependencies
-
-| Package | Purpose |
-|---|---|
-| `openenv-core` | OpenEnv HTTP/WebSocket server + client framework |
-| `torch` | Online policy gradient RL (StrategyPolicy) |
-| `groq` | Llama 4 Scout (text + vision) & Whisper (STT) API |
-| `openai` | Baseline agent (gpt-4o-mini) |
-| `pydantic` | Action/Observation model validation |
-| `fastapi` + `uvicorn` | HTTP server (via openenv-core) |
+- **Team**: APEX SYNDICATE
+- **GitHub**: [VenuAtluri2251421/Persuasion-Trainer](https://github.com/VenuAtluri2251421/Persuasion-Trainer)
+- **HF Space**: [VenuAtluri936/Persuasion-Trainer](https://huggingface.co/spaces/VenuAtluri936/Persuasion-Trainer)
+- **Event**: Meta PyTorch Hackathon × Scaler School of Technology
