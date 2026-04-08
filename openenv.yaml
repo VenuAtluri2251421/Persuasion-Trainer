@@ -1,0 +1,33 @@
+spec_version: 1
+name: persuasion_trainer
+display_name: Multimodal Persuasion Trainer
+description: >
+  A high-fidelity, multimodal negotiation training environment powered by
+  Llama 4 Scout (text + vision), Groq Whisper (voice STT), and PyTorch
+  online policy gradients. The RL-driven AI opponent adapts its strategy
+  (logical, emotional, data, examples, pressure) based on the agent's
+  graded performance across clarity, logic, persuasion, and confidence.
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+tasks:
+  - name: refund-negotiation
+    type: easy
+    description: Convince a Customer Support Agent to issue a full refund for a delayed order.
+  - name: salary-raise-negotiation
+    type: medium
+    description: Negotiate a 15% salary raise with a budget-constrained HR Manager.
+  - name: board-pivot-negotiation
+    type: hard
+    description: Persuade a hostile Board Member to approve a full company pivot.
+reward:
+  min: 0.0
+  max: 1.0
+  formula: "(logic_grade + persuasion_grade) / 20.0, penalised by hesitation filler words and modulated by facial expression signals"
+tags:
+  - openenv
+  - negotiation
+  - multimodal
+  - reinforcement-learning
+  - llama-4
