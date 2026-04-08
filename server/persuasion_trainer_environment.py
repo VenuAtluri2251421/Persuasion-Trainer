@@ -60,7 +60,7 @@ def call_llama(prompt: str, system: str = "", json_mode: bool = False) -> str:
     system += " STRICT RULE: Keep all responses to 3 sentences max. Be punchy. Do not repeat the user's words back to them."
     response_format = {"type": "json_object"} if json_mode else {"type": "text"}
     completion = client.chat.completions.create(
-        model="llama-4-scout",
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
